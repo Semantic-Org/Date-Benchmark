@@ -1,0 +1,13 @@
+{
+  "name": "@date-benchmark/native-dates",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "native-dates": "file:../../../native-dates"
+  },
+  "dateBenchmark": {
+    "label": "native-dates",
+    "url": "https://github.com/Semantic-Org/Native-Dates",
+    "package": "native-dates"
+  }
+}

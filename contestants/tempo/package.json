@@ -1,0 +1,13 @@
+{
+  "name": "@date-benchmark/tempo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@formkit/tempo": "^1.5.0"
+  },
+  "dateBenchmark": {
+    "label": "@formkit/tempo",
+    "url": "https://github.com/formkit/tempo",
+    "package": "@formkit/tempo"
+  }
+}

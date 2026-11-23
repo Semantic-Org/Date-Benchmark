@@ -4,26 +4,21 @@
   "private": true,
   "description": "Cross-library browser benchmark and correctness audit for JavaScript date-time libraries",
   "type": "module",
+  "workspaces": [
+    "contestants/*"
+  ],
   "scripts": {
+    "test": "node scripts/verify.js",
+    "audit": "node scripts/run.js --audit-only",
+    "size": "node scripts/size.js",
     "bench": "node scripts/run.js",
     "bench:quick": "node scripts/run.js --rounds 5",
     "bench:record": "node scripts/run.js --record",
-    "audit": "node scripts/run.js --audit-only",
-    "size": "node scripts/size.js",
     "report": "node scripts/report.js"
-  },
-  "dependencies": {
-    "@date-fns/tz": "^1.5.0",
-    "@formkit/tempo": "^1.5.0",
-    "date-fns": "^4.4.0",
-    "dayjs": "^1.11.23",
-    "luxon": "^3.7.2",
-    "moment": "^2.31.0",
-    "moment-timezone": "^0.6.6",
-    "temporal-polyfill": "^0.3.0"
   },
   "devDependencies": {
     "esbuild": "^0.27.2",
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "temporal-polyfill": "^0.3.0"
   }
 }

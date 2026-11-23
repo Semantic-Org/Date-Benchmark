@@ -1,0 +1,13 @@
+{
+  "name": "@date-benchmark/dayjs",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dayjs": "^1.11.23"
+  },
+  "dateBenchmark": {
+    "label": "dayjs + plugins",
+    "url": "https://github.com/iamkun/dayjs",
+    "package": "dayjs"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@date-benchmark/luxon",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "luxon": "^3.7.2"
+  },
+  "dateBenchmark": {
+    "label": "luxon",
+    "url": "https://github.com/moment/luxon",
+    "package": "luxon"
+  }
+}

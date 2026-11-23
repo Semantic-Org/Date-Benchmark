@@ -1,13 +1,3 @@
-export const CONTESTANTS = [
-  { id: 'vanilla-temporal', label: 'Temporal + Intl (floor)', isFloor: true, pkg: null },
-  { id: 'native-dates', label: 'native-dates', pkg: 'native-dates' },
-  { id: 'date-fns', label: 'date-fns + @date-fns/tz', pkg: 'date-fns' },
-  { id: 'dayjs', label: 'dayjs + plugins', pkg: 'dayjs' },
-  { id: 'luxon', label: 'luxon', pkg: 'luxon' },
-  { id: 'moment', label: 'moment + moment-timezone', pkg: 'moment' },
-  { id: 'tempo', label: '@formkit/tempo', pkg: '@formkit/tempo' },
-];
-
 export const BENCHMARKS = [
   // Tier 1: Core Operations (50% of headline geometric mean)
   {

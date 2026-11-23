@@ -1,0 +1,14 @@
+{
+  "name": "@date-benchmark/moment",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "moment": "^2.31.0",
+    "moment-timezone": "^0.6.6"
+  },
+  "dateBenchmark": {
+    "label": "moment + moment-timezone",
+    "url": "https://github.com/moment/moment",
+    "package": "moment"
+  }
+}

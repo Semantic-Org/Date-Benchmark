@@ -7,7 +7,8 @@ import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 
 import { evaluateAudit } from '../src/audit.js';
-import { BENCHMARKS, CONTESTANTS } from '../src/spec.js';
+import { discoverContestants, parseOverrides } from '../src/discover.js';
+import { BENCHMARKS } from '../src/spec.js';
 import { measureAllSizes } from './size.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,17 +19,20 @@ const SCHEMA_VERSION = 1;
 const { values: flags } = parseArgs({
   options: {
     rounds: { type: 'string', default: '15' },
-    'native-dates-dir': { type: 'string', default: resolve(root, '../native-dates') },
+    contestants: { type: 'string' },
+    override: { type: 'string', multiple: true },
     filter: { type: 'string' },
     'audit-only': { type: 'boolean', default: false },
     record: { type: 'boolean', default: false },
+    focus: { type: 'string', default: 'native-dates' },
     sha: { type: 'string' },
     msg: { type: 'string' },
   },
 });
 
 const rounds = Number(flags.rounds ?? 15);
-const nativeDatesDir = resolve(flags['native-dates-dir']);
+const contestants = discoverContestants(undefined, flags.contestants);
+const overrides = parseOverrides(flags.override);
 
 const median = (arr) => {
   const s = [...arr].sort((a, b) => a - b);
@@ -36,7 +40,6 @@ const median = (arr) => {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 };
 
-// 95% confidence interval of the sample mean (t-approx)
 function ci95(arr) {
   if (arr.length < 2) return [arr[0] ?? 0, arr[0] ?? 0];
   const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -48,17 +51,17 @@ function ci95(arr) {
 const geomean = (vals) => Math.exp(vals.reduce((acc, v) => acc + Math.log(v), 0) / vals.length);
 
 function readPackageVersions() {
-  const pkgJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const versions = {};
-  for (const c of CONTESTANTS) {
+  for (const c of contestants) {
     if (!c.pkg) continue;
-    if (c.id === 'native-dates') {
-      const ndPkg = JSON.parse(readFileSync(join(nativeDatesDir, 'package.json'), 'utf8'));
-      versions[c.id] = ndPkg.version;
+    if (overrides.has(c.pkg)) {
+      versions[c.id] = `${overrides.get(c.pkg).version} (local)`;
       continue;
     }
-    const depPkg = JSON.parse(readFileSync(join(root, 'node_modules', c.pkg, 'package.json'), 'utf8'));
-    versions[c.id] = depPkg.version;
+    const localPkg = join(c.dir, 'node_modules', c.pkg, 'package.json');
+    const hoistedPkg = join(root, 'node_modules', c.pkg, 'package.json');
+    const found = existsSync(localPkg) ? localPkg : hoistedPkg;
+    versions[c.id] = existsSync(found) ? JSON.parse(readFileSync(found, 'utf8')).version : 'unknown';
   }
   return versions;
 }
@@ -74,7 +77,7 @@ function gitIn(dir, ...args) {
 
 async function main() {
   const startWall = Date.now();
-  const { sizes, bundles, polyfill } = await measureAllSizes({ nativeDatesDir });
+  const { sizes, bundles, polyfill } = await measureAllSizes({ contestants, overrides });
   const fixturesCode = readFileSync(join(root, 'src/fixtures.js'), 'utf8');
 
   const activeBenches = flags.filter
@@ -85,7 +88,7 @@ async function main() {
 
   const runnerHtml = `<!doctype html><meta charset="utf-8"><script type="module">
 import * as fx from '/fixtures.js';
-const ids = ${JSON.stringify(CONTESTANTS.map((c) => c.id))};
+const ids = ${JSON.stringify(contestants.map((c) => c.id))};
 const ops = ${JSON.stringify(inPageBenches.map((b) => b.id))};
 
 window.__auditAll = async () => {
@@ -184,11 +187,7 @@ window.__measureCold = async (id, nonce) => {
 
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--js-flags=--expose-gc'],
-  });
+  const browser = await chromium.launch({ headless: true, args: ['--js-flags=--expose-gc'] });
 
   try {
     const auditCtx = await browser.newContext({ timezoneId: 'Europe/Berlin', locale: 'en-US' });
@@ -203,7 +202,7 @@ window.__measureCold = async (id, nonce) => {
       ...rawAudit.out['vanilla-temporal'].outputs,
     };
     const audits = {};
-    for (const c of CONTESTANTS) {
+    for (const c of contestants) {
       audits[c.id] = evaluateAudit(c.id, rawAudit.out[c.id].checks, rawAudit.out[c.id].outputs, ref);
     }
 
@@ -211,7 +210,7 @@ window.__measureCold = async (id, nonce) => {
     const chromeVersion = chromeMatch ? chromeMatch[1] : rawAudit.ua;
     console.log(`Browser: HeadlessChrome ${chromeVersion} · Host TZ: ${rawAudit.tz}`);
     console.log('\n=== CORRECTNESS & DST INVARIANT AUDIT ===');
-    for (const c of CONTESTANTS) {
+    for (const c of contestants) {
       const a = audits[c.id];
       const status = a.passed ? 'PASS (100%)' : `WARN (${a.issues.join('; ')})`;
       console.log(`${c.label.padEnd(28)} | ${status}`);
@@ -219,7 +218,6 @@ window.__measureCold = async (id, nonce) => {
 
     if (flags['audit-only']) return;
 
-    // In-page interleaved rounds
     const runCtx = await browser.newContext({ timezoneId: 'Europe/Berlin', locale: 'en-US' });
     const runPage = await runCtx.newPage();
     await runPage.goto(`http://127.0.0.1:${port}/index.html`);
@@ -227,12 +225,11 @@ window.__measureCold = async (id, nonce) => {
     const samples = await runPage.evaluate((n) => window.__runInPage(n), rounds);
     await runCtx.close();
 
-    // Cold startup rounds in fresh browser contexts so V8 script compilation & module evaluation are uncached
     if (runColdStartup) {
-      for (const c of CONTESTANTS) samples[c.id]['12_app_cold_startup'] = [];
+      for (const c of contestants) samples[c.id]['12_app_cold_startup'] = [];
       for (let r = 0; r < rounds; r++) {
-        for (let k = 0; k < CONTESTANTS.length; k++) {
-          const c = CONTESTANTS[(k + r) % CONTESTANTS.length];
+        for (let k = 0; k < contestants.length; k++) {
+          const c = contestants[(k + r) % contestants.length];
           const ctx = await browser.newContext({ timezoneId: 'Europe/Berlin', locale: 'en-US' });
           const page = await ctx.newPage();
           await page.goto(`http://127.0.0.1:${port}/cold.html`);
@@ -249,27 +246,27 @@ window.__measureCold = async (id, nonce) => {
     for (const b of activeBenches) {
       medians[b.id] = {};
       intervals[b.id] = {};
-      for (const c of CONTESTANTS) {
+      for (const c of contestants) {
         medians[b.id][c.id] = Number(median(samples[c.id][b.id]).toFixed(2));
         intervals[b.id][c.id] = ci95(samples[c.id][b.id]);
       }
     }
 
-    const libContestants = CONTESTANTS.filter((c) => !c.isFloor);
+    const libContestants = contestants.filter((c) => !c.isFloor);
     const fastestLib = {};
     for (const b of activeBenches) {
       fastestLib[b.id] = Math.min(...libContestants.map((c) => medians[b.id][c.id]));
     }
 
     console.log(`\n=== MEDIAN RUNTIME (${rounds} interleaved rounds, ms, lower is better) ===`);
-    const hdr = ['Benchmark'.padEnd(40), ...CONTESTANTS.map((c) => c.id.slice(0, 12).padStart(12))].join(' | ');
+    const hdr = ['Benchmark'.padEnd(40), ...contestants.map((c) => c.id.slice(0, 12).padStart(12))].join(' | ');
     console.log(hdr);
     console.log('-'.repeat(hdr.length));
     for (const b of activeBenches) {
       console.log(
         [
           b.label.padEnd(40),
-          ...CONTESTANTS.map((c) => `${medians[b.id][c.id].toFixed(2)} ms`.padStart(12)),
+          ...contestants.map((c) => `${medians[b.id][c.id].toFixed(2)} ms`.padStart(12)),
         ].join(' | '),
       );
     }
@@ -278,7 +275,7 @@ window.__measureCold = async (id, nonce) => {
     const appBenches = activeBenches.filter((b) => b.tier === 'workload');
     console.log('\n=== HEADLINE GEOMETRIC MEAN SLOWDOWN (50% Core / 50% App Workloads) ===');
     const scores = {};
-    for (const c of CONTESTANTS) {
+    for (const c of contestants) {
       const coreVsLib = coreBenches.length
         ? geomean(coreBenches.map((b) => medians[b.id][c.id] / fastestLib[b.id]))
         : 1;
@@ -313,18 +310,21 @@ window.__measureCold = async (id, nonce) => {
     }
 
     if (flags.record) {
-      const sha = flags.sha ?? gitIn(nativeDatesDir, 'rev-parse', '--short', 'HEAD');
-      const msg = flags.msg ?? gitIn(nativeDatesDir, 'log', '-1', '--format=%s');
+      const focusId = flags.focus;
+      const focusContestant = contestants.find((c) => c.id === focusId);
+      const focusGitDir = (focusContestant?.pkg && overrides.get(focusContestant.pkg)?.dir) ?? root;
+      const sha = flags.sha ?? gitIn(focusGitDir, 'rev-parse', '--short', 'HEAD');
+      const msg = flags.msg ?? gitIn(focusGitDir, 'log', '-1', '--format=%s');
       const wallclockSeconds = Math.round((Date.now() - startWall) / 1000);
       const versions = readPackageVersions();
-      const competitors = libContestants.filter((c) => c.id !== 'native-dates').map((c) => c.id);
+      const peers = libContestants.filter((c) => c.id !== focusId).map((c) => c.id);
 
       const comparison = {};
       for (const b of activeBenches) {
-        const selfVal = medians[b.id]['native-dates'];
+        const selfVal = medians[b.id][focusId];
         let bestComp = null;
         let bestVal = Infinity;
-        for (const comp of competitors) {
+        for (const comp of peers) {
           if (medians[b.id][comp] < bestVal) {
             bestVal = medians[b.id][comp];
             bestComp = comp;
@@ -339,20 +339,21 @@ window.__measureCold = async (id, nonce) => {
 
       const entry = {
         sha,
+        focus: focusId,
         msg,
         timestamp: new Date().toISOString(),
         rounds,
         wallclock_seconds: wallclockSeconds,
         chrome_version: chromeVersion,
         field: versions,
-        scores: scores['native-dates'],
+        scores: scores[focusId],
         comparison,
       };
 
       const history = existsSync(HISTORY_FILE)
         ? JSON.parse(readFileSync(HISTORY_FILE, 'utf8'))
         : { schema_version: SCHEMA_VERSION, runs: [] };
-      const idx = history.runs.findIndex((r) => r.sha === sha);
+      const idx = history.runs.findIndex((r) => r.sha === sha && r.focus === focusId);
       if (idx >= 0) history.runs[idx] = entry;
       else history.runs.push(entry);
       writeFileSync(HISTORY_FILE, `${JSON.stringify(history, null, 2)}\n`);
@@ -363,6 +364,7 @@ window.__measureCold = async (id, nonce) => {
         `${JSON.stringify(
           {
             sha,
+            focus: focusId,
             msg,
             timestamp: entry.timestamp,
             rounds,
@@ -380,7 +382,7 @@ window.__measureCold = async (id, nonce) => {
           2,
         )}\n`,
       );
-      console.log(`\nRecorded run ${sha} to history.json and runs/${sha}.json`);
+      console.log(`\nRecorded run ${sha} (${focusId}) to history.json and runs/${sha}.json`);
     }
   }
   finally {

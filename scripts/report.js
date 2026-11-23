@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BENCHMARKS, CONTESTANTS } from '../src/spec.js';
+import { discoverContestants } from '../src/discover.js';
+import { BENCHMARKS } from '../src/spec.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HISTORY_FILE = join(root, 'history.json');
@@ -46,23 +47,24 @@ if (cmd === 'diff') {
 else if (cmd === 'markdown') {
   const latest = history.runs.at(-1);
   const raw = JSON.parse(readFileSync(join(RUNS_DIR, `${latest.sha}.json`), 'utf8'));
+  const contestants = discoverContestants().filter((c) => raw.scores[c.id]);
   console.log(`## Date Benchmark — \`${latest.sha}\` (HeadlessChrome ${latest.chrome_version})\n`);
-  console.log('| Contestant | Full App Brotli | Core (8) | App Workloads (4) | **50/50 Weighted** | vs `Temporal` Floor | Correctness Audit |');
-  console.log('|---|---:|---:|---:|---:|---:|---|');
-  for (const c of CONTESTANTS) {
+  console.log('| Contestant | Minimal Brotli | Full App Brotli | Core (8) | App Workloads (4) | **50/50 Weighted** | vs `Temporal` Floor | Correctness Audit |');
+  console.log('|---|---:|---:|---:|---:|---:|---:|---|');
+  for (const c of contestants) {
     const sc = raw.scores[c.id];
     const sz = raw.sizes[c.id];
     const au = raw.audits[c.id];
     const auditCell = au.passed ? '100% pass' : `⚠️ ${au.issues.join(', ')}`;
     console.log(
-      `| ${c.label} | ${(sz.full.brotli / 1024).toFixed(2)} kB | ${sc.core_vs_fastest.toFixed(2)}x | ${sc.app_vs_fastest.toFixed(2)}x | **${sc.weighted_vs_fastest.toFixed(2)}x** | ${sc.weighted_vs_floor.toFixed(2)}x | ${auditCell} |`,
+      `| ${c.label} | ${(sz.minimal.brotli / 1024).toFixed(2)} kB | ${(sz.full.brotli / 1024).toFixed(2)} kB | ${sc.core_vs_fastest.toFixed(2)}x | ${sc.app_vs_fastest.toFixed(2)}x | **${sc.weighted_vs_fastest.toFixed(2)}x** | ${sc.weighted_vs_floor.toFixed(2)}x | ${auditCell} |`,
     );
   }
 }
 else {
   const run = history.runs.at(-1);
   console.log(
-    `latest ${run.sha}  ${run.timestamp}  ${run.rounds} rounds (${run.wallclock_seconds}s)  HeadlessChrome ${run.chrome_version}`,
+    `latest ${run.sha} (${run.focus ?? 'native-dates'})  ${run.timestamp}  ${run.rounds} rounds (${run.wallclock_seconds}s)  HeadlessChrome ${run.chrome_version}`,
   );
   console.log(`${run.msg}\n`);
   console.log(
@@ -73,7 +75,7 @@ else {
     const c = run.comparison[bench.id];
     if (!c) continue;
     console.log(
-      `  ${bench.id.padEnd(24)} ${ `${c.ratio.toFixed(2)}x`.padEnd(8)} ${ `${c.ratio_to_floor.toFixed(2)}x`.padEnd(9)} ${c.fastest}`,
+      `  ${bench.id.padEnd(24)} ${`${c.ratio.toFixed(2)}x`.padEnd(8)} ${`${c.ratio_to_floor.toFixed(2)}x`.padEnd(9)} ${c.fastest}`,
     );
   }
 }

@@ -1,0 +1,11 @@
+{
+  "name": "@date-benchmark/vanilla-temporal",
+  "private": true,
+  "type": "module",
+  "dateBenchmark": {
+    "label": "Temporal + Intl (floor)",
+    "url": "https://tc39.es/proposal-temporal/",
+    "package": null,
+    "isFloor": true
+  }
+}

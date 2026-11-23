@@ -1,49 +1,21 @@
 import { build } from 'esbuild';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 
-import { CONTESTANTS } from '../src/spec.js';
+import { discoverContestants, parseOverrides } from '../src/discover.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-const MINIMAL_SNIPPETS = {
-  'vanilla-temporal': `
-    const d = Temporal.PlainDate.from('2026-03-07').add({ days: 2 });
-    console.log(d.toString());
-  `,
-  'native-dates': `
-    import { date } from 'native-dates';
-    console.log(date('2026-03-07').plus(2, 'days').format('YYYY-MM-DD'));
-  `,
-  'date-fns': `
-    import { addDays, format, parseISO } from 'date-fns';
-    console.log(format(addDays(parseISO('2026-03-07'), 2), 'yyyy-MM-dd'));
-  `,
-  dayjs: `
-    import dayjs from 'dayjs';
-    console.log(dayjs('2026-03-07').add(2, 'day').format('YYYY-MM-DD'));
-  `,
-  luxon: `
-    import { DateTime } from 'luxon';
-    console.log(DateTime.fromISO('2026-03-07').plus({ days: 2 }).toFormat('yyyy-MM-dd'));
-  `,
-  moment: `
-    import moment from 'moment';
-    console.log(moment.utc('2026-03-07').add(2, 'days').format('YYYY-MM-DD'));
-  `,
-  tempo: `
-    import { addDay, date, format } from '@formkit/tempo';
-    console.log(format(addDay(date('2026-03-07'), 2), 'YYYY-MM-DD', 'en-US'));
-  `,
-};
-
-export function resolveNativeDatesPlugin(nativeDatesDir) {
-  const srcIndex = resolve(nativeDatesDir, 'src/index.js');
+export function overridePlugin(overrides) {
   return {
-    name: 'resolve-native-dates',
+    name: 'package-overrides',
     setup({ onResolve }) {
-      onResolve({ filter: /^native-dates$/ }, () => ({ path: srcIndex }));
+      for (const [pkgName, info] of overrides.entries()) {
+        const escaped = pkgName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({ path: info.entry }));
+      }
     },
   };
 }
@@ -60,16 +32,16 @@ function compressSizes(contents) {
   };
 }
 
-export async function bundleEntry({ entryPoint, stdin, nativeDatesDir = resolve(root, '../native-dates') }) {
+export async function bundleEntry({ entryPoint, stdin, resolveDir = root, overrides = new Map() }) {
   const result = await build({
-    ...(entryPoint ? { entryPoints: [entryPoint] } : { stdin: { contents: stdin, resolveDir: root, loader: 'js' } }),
+    ...(entryPoint ? { entryPoints: [entryPoint] } : { stdin: { contents: stdin, resolveDir, loader: 'js' } }),
     bundle: true,
     minify: true,
     format: 'esm',
     write: false,
-    absWorkingDir: root,
+    absWorkingDir: resolveDir,
     logLevel: 'error',
-    plugins: [resolveNativeDatesPlugin(nativeDatesDir)],
+    plugins: overrides.size ? [overridePlugin(overrides)] : [],
     define: { 'process.env.NODE_ENV': '"production"', __DEV__: 'false' },
   });
   const contents = result.outputFiles[0].contents;
@@ -79,20 +51,16 @@ export async function bundleEntry({ entryPoint, stdin, nativeDatesDir = resolve(
   };
 }
 
-export async function measureAllSizes({ nativeDatesDir = resolve(root, '../native-dates') } = {}) {
+export async function measureAllSizes({ contestants = discoverContestants(), overrides = new Map() } = {}) {
   const sizes = {};
   const bundles = new Map();
+  const minimalBundles = new Map();
 
-  for (const c of CONTESTANTS) {
-    const full = await bundleEntry({
-      entryPoint: resolve(root, `src/contestants/${c.id}.js`),
-      nativeDatesDir,
-    });
-    const minimal = await bundleEntry({
-      stdin: MINIMAL_SNIPPETS[c.id],
-      nativeDatesDir,
-    });
+  for (const c of contestants) {
+    const full = await bundleEntry({ entryPoint: c.entry, resolveDir: c.dir, overrides });
+    const minimal = await bundleEntry({ entryPoint: c.minimalEntry, resolveDir: c.dir, overrides });
     bundles.set(c.id, full.code);
+    minimalBundles.set(c.id, minimal.code);
     sizes[c.id] = {
       minimal: { minified: minimal.minified, gzip: minimal.gzip, brotli: minimal.brotli },
       full: { minified: full.minified, gzip: full.gzip, brotli: full.brotli },
@@ -101,14 +69,28 @@ export async function measureAllSizes({ nativeDatesDir = resolve(root, '../nativ
 
   const polyfill = await bundleEntry({
     stdin: `import 'temporal-polyfill/global'; console.log(Temporal.Now.instant());`,
-    nativeDatesDir,
+    resolveDir: root,
   });
 
-  return { sizes, bundles, polyfill: { minified: polyfill.minified, gzip: polyfill.gzip, brotli: polyfill.brotli } };
+  return {
+    sizes,
+    bundles,
+    minimalBundles,
+    polyfill: { minified: polyfill.minified, gzip: polyfill.gzip, brotli: polyfill.brotli },
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { sizes, polyfill } = await measureAllSizes();
+  const { values } = parseArgs({
+    options: {
+      contestants: { type: 'string' },
+      override: { type: 'string', multiple: true },
+    },
+  });
+  const contestants = discoverContestants(undefined, values.contestants);
+  const overrides = parseOverrides(values.override);
+  const { sizes, polyfill } = await measureAllSizes({ contestants, overrides });
+
   console.log('Shipped Production Bundle Sizes (esbuild minify + Brotli-11)\n');
   console.log(
     [
@@ -120,7 +102,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ].join(' | '),
   );
   console.log('-'.repeat(99));
-  for (const c of CONTESTANTS) {
+  for (const c of contestants) {
     const s = sizes[c.id];
     console.log(
       [
