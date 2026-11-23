@@ -209,8 +209,67 @@ export function renderBenchmarkHtml(data, contestantsMeta) {
     font-weight: 600;
   }
   .badge-floor { background: #e2e8f0; color: #334155; }
-  .badge-pass { background: #dcfce7; color: #166534; }
-  .badge-warn { background: #fef3c7; color: #92400e; }
+  .fn-links {
+    display: block;
+    margin-top: 3px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.2;
+  }
+  .fn-ref {
+    color: #334155;
+    text-decoration: none;
+    font-weight: 600;
+    margin: 0 1px;
+  }
+  .fn-ref:hover { text-decoration: underline; color: var(--accent); }
+  .cell-fn {
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(15, 23, 42, 0.78);
+    text-decoration: none;
+    margin-left: 2px;
+  }
+  .cell-fn:hover { text-decoration: underline; }
+  .notes-card {
+    margin-top: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .notes-title {
+    margin: 0 0 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #334155;
+  }
+  .notes-list {
+    margin: 0;
+    padding-left: 0;
+    list-style: none;
+    display: grid;
+    gap: 5px;
+  }
+  .notes-list li {
+    line-height: 1.45;
+  }
+  .notes-list li:target {
+    background: #fef9c3;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
+  .note-num {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text);
+    margin-right: 6px;
+  }
   tr.section-row td {
     background: #f1f5f9;
     font-weight: 700;
@@ -295,7 +354,7 @@ export function renderBenchmarkHtml(data, contestantsMeta) {
   <header>
     <div>
       <h1>JavaScript Date Benchmark</h1>
-      <p class="subtitle">Headless Chrome runtime, shipped Brotli-11 size, and cross-zone DST correctness audit</p>
+      <p class="subtitle">Headless Chrome runtime and shipped Brotli-11 bundle size across date-time libraries</p>
     </div>
     <div class="meta-pills" id="meta-pills"></div>
   </header>
@@ -318,6 +377,11 @@ export function renderBenchmarkHtml(data, contestantsMeta) {
   <div class="table-card">
     <table id="results-table"></table>
   </div>
+
+  <section class="notes-card" id="notes-section" hidden>
+    <h2 class="notes-title">Implementation Notes</h2>
+    <ol class="notes-list" id="notes-list"></ol>
+  </section>
 
   <footer id="footer-notes"></footer>
 </div>
@@ -386,6 +450,92 @@ function computeScores(cols) {
   return out;
 }
 
+// Build Krausest-style numbered appendix footnotes for any contestant with implementation caveats
+function buildFootnotes(cols) {
+  const notes = [];
+  const headerRefs = new Map(); // contestantId -> [noteNum]
+  const cellRefs = new Map();   // benchId|contestantId -> [noteNum]
+
+  const addRef = (map, key, num) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(num);
+  };
+
+  if (!run.audits) return { notes, headerRefs, cellRefs };
+
+  // Group 1: non-validating ISO date parser (rolls 2026-02-31 into March)
+  const rolloverCols = cols.filter((c) => !c.isFloor && run.audits[c.id] && !run.audits[c.id].rejectsInvalidCalendar);
+  if (rolloverCols.length) {
+    const num = notes.length + 1;
+    notes.push({
+      num,
+      libs: rolloverCols.map((c) => c.label),
+      bench: 'Parse ISO',
+      text: 'Delegates ISO calendar strings to native Date parsing without calendar-bounds validation (e.g. "2026-02-31" rolls forward to March 3).',
+    });
+    for (const c of rolloverCols) {
+      addRef(headerRefs, c.id, num);
+      addRef(cellRefs, \`01_parse_iso|\${c.id}\`, num);
+    }
+  }
+
+  // Per-library DST / leap-year caveats
+  for (const c of cols) {
+    if (c.isFloor) continue;
+    const au = run.audits[c.id];
+    if (!au) continue;
+    if (au.dstAccuracyPct < 100) {
+      const num = notes.length + 1;
+      const detail = au.dstAccuracyPct === 0
+        ? 'Zoned helper returns a host-local Date instance, so calendar day addition steps in the browser host time zone (Europe/Berlin) rather than the target zone (America/New_York; 0% parity across spring-forward DST).'
+        : \`Wall-clock day addition shifts by 1 hour on \${(100 - au.dstAccuracyPct).toFixed(1)}% of timestamps crossing the America/New_York spring-forward transition (\${au.dstAccuracyPct.toFixed(1)}% parity).\`;
+      notes.push({
+        num,
+        libs: [c.label],
+        bench: 'Zoned DST add + zone convert',
+        text: detail,
+      });
+      addRef(headerRefs, c.id, num);
+      addRef(cellRefs, \`06_zoned_dst_math|\${c.id}\`, num);
+    }
+    if (au.leapYearClamp === false) {
+      const num = notes.length + 1;
+      notes.push({
+        num,
+        libs: [c.label],
+        bench: 'Calendar add + month/week bounds',
+        text: 'Adding 1 year to 2024-02-29 does not clamp to 2025-02-28.',
+      });
+      addRef(headerRefs, c.id, num);
+      addRef(cellRefs, \`05_calendar_math|\${c.id}\`, num);
+    }
+  }
+
+  // Group: libraries without a built-in Intl formatter wrapper in 03/04
+  const rawLocaleCols = cols.filter((c) => c.id === 'dayjs' || c.id === 'moment');
+  if (rawLocaleCols.length && (run.medians['03_format_intl_warm'] || run.medians['04_format_intl_cold'])) {
+    const num = notes.length + 1;
+    notes.push({
+      num,
+      libs: rawLocaleCols.map((c) => c.label),
+      bench: 'Localized Intl format',
+      text: 'Library provides no Intl.DateTimeFormat preset wrapper; calls .toDate().toLocaleString(locale, options) directly per Fair-Play exception.',
+    });
+    for (const c of rawLocaleCols) {
+      addRef(headerRefs, c.id, num);
+      addRef(cellRefs, \`03_format_intl_warm|\${c.id}\`, num);
+      addRef(cellRefs, \`04_format_intl_cold|\${c.id}\`, num);
+    }
+  }
+
+  return { notes, headerRefs, cellRefs };
+}
+
+function formatRefs(nums, cls) {
+  if (!nums || !nums.length) return '';
+  return nums.map((n) => \`<a class="\${cls}" href="#note-\${n}">[\${n}]</a>\`).join('');
+}
+
 function render() {
   const rawCols = activeContestants();
   const scores = computeScores(rawCols);
@@ -395,21 +545,23 @@ function render() {
     return scores[a.id].weighted - scores[b.id].weighted;
   });
 
+  const { notes, headerRefs, cellRefs } = buildFootnotes(cols);
+
   const table = document.getElementById('results-table');
   const colSpan = cols.length + 1;
   let html = '<thead><tr><th class="bench-col">Benchmark / Metric</th>';
   for (const c of cols) {
     const ver = c.isFloor ? 'V8 native' : (run.field?.[c.id] ? 'v' + run.field[c.id] : '');
-    const au = run.audits?.[c.id];
-    const badge = c.isFloor
+    const refs = formatRefs(headerRefs.get(c.id), 'fn-ref');
+    const subMeta = c.isFloor
       ? '<span class="lib-badge badge-floor">Platform Floor</span>'
-      : au?.passed
-      ? '<span class="lib-badge badge-pass">100% Audit</span>'
-      : '<span class="lib-badge badge-warn" title="' + (au?.issues || []).join('; ').replace(/"/g, '&quot;') + '">Audit Warn</span>';
+      : refs
+      ? \`<span class="fn-links">\${refs}</span>\`
+      : '';
     const titleHtml = c.url
       ? \`<a href="\${c.url}" target="_blank" rel="noopener">\${c.label}</a>\`
       : c.label;
-    html += \`<th><span class="lib-name">\${titleHtml}</span><span class="lib-ver">\${ver}</span>\${badge}</th>\`;
+    html += \`<th><span class="lib-name">\${titleHtml}</span><span class="lib-ver">\${ver}</span>\${subMeta}</th>\`;
   }
   html += '</tr></thead><tbody>';
 
@@ -426,7 +578,8 @@ function render() {
         const half = ci ? ((ci[1] - ci[0]) / 2).toFixed(1) : '0.0';
         const factor = med / base;
         const bg = heatColor(factor);
-        html += \`<td class="metric-cell" style="background:\${bg}"><span class="cell-main">\${med.toFixed(1)} ms</span><span class="cell-sub">±\${half} (\${factor.toFixed(2)})</span></td>\`;
+        const cRefs = formatRefs(cellRefs.get(\`\${b.id}|\${c.id}\`), 'cell-fn');
+        html += \`<td class="metric-cell" style="background:\${bg}"><span class="cell-main">\${med.toFixed(1)} ms\${cRefs}</span><span class="cell-sub">±\${half} (\${factor.toFixed(2)})</span></td>\`;
       }
       html += '</tr>';
     }
@@ -478,27 +631,23 @@ function render() {
     html += '</tr>';
   }
 
-  // Correctness & DST Invariants section
-  if (run.audits) {
-    html += \`<tr class="section-row"><td colspan="\${colSpan}">Correctness &amp; Cross-Zone DST Audit (Browser Host TZ = Europe/Berlin)</td></tr>\`;
-    html += '<tr><td class="bench-name">Rejects Invalid Calendar Rollover<span class="bench-desc">Refuses "2026-02-31" instead of silently rolling to March 3</span></td>';
-    for (const c of cols) {
-      const ok = run.audits[c.id].rejectsInvalidCalendar;
-      html += \`<td class="metric-cell" style="background:\${ok ? heatColor(1) : heatColor(3)}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${ok ? 'PASS' : 'ROLLOVER'}</span></td>\`;
-    }
-    html += '</tr>';
-
-    html += '<tr><td class="bench-name">Cross-Zone Spring-Forward DST Parity<span class="bench-desc">1,000 America/New_York +2d steps across Mar 8 DST while host TZ is Europe/Berlin</span></td>';
-    for (const c of cols) {
-      const pct = run.audits[c.id].dstAccuracyPct;
-      const ok = pct === 100;
-      html += \`<td class="metric-cell" style="background:\${ok ? heatColor(1) : pct > 0 ? heatColor(2.4) : heatColor(4)}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${pct.toFixed(1)}%</span></td>\`;
-    }
-    html += '</tr>';
-  }
-
   html += '</tbody>';
   table.innerHTML = html;
+
+  const notesSec = document.getElementById('notes-section');
+  const notesList = document.getElementById('notes-list');
+  if (notes.length) {
+    notesSec.hidden = false;
+    notesList.innerHTML = notes
+      .map(
+        (n) =>
+          \`<li id="note-\${n.num}"><span class="note-num">[\${n.num}]</span><strong>\${n.libs.join(', ')}</strong> (<em>\${n.bench}</em>): \${n.text}</li>\`,
+      )
+      .join('');
+  }
+  else {
+    notesSec.hidden = true;
+  }
 }
 
 // Header pills & controls setup
