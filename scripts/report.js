@@ -1,13 +1,34 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { discoverContestants } from '../src/discover.js';
+import { renderBenchmarkHtml } from '../src/render-html.js';
 import { BENCHMARKS } from '../src/spec.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HISTORY_FILE = join(root, 'history.json');
 const RUNS_DIR = join(root, 'runs');
+const RESULTS_DIR = join(root, 'results');
+
+const [cmd, a, b] = process.argv.slice(2);
+
+if (cmd === 'html') {
+  const sourceFile = a
+    ? join(RUNS_DIR, a.endsWith('.json') ? a : `${a}.json`)
+    : existsSync(join(RESULTS_DIR, 'latest.json'))
+    ? join(RESULTS_DIR, 'latest.json')
+    : join(RUNS_DIR, `${JSON.parse(readFileSync(HISTORY_FILE, 'utf8')).runs.at(-1).sha}.json`);
+  const raw = JSON.parse(readFileSync(sourceFile, 'utf8'));
+  const contestants = discoverContestants()
+    .filter((c) => raw.scores?.[c.id])
+    .map((c) => ({ id: c.id, label: c.label, url: c.url, isFloor: c.isFloor }));
+  if (!existsSync(RESULTS_DIR)) mkdirSync(RESULTS_DIR, { recursive: true });
+  const outHtml = join(RESULTS_DIR, 'index.html');
+  writeFileSync(outHtml, renderBenchmarkHtml(raw, contestants));
+  console.log(`Rendered visual HTML report: file://${outHtml}`);
+  process.exit(0);
+}
 
 if (!existsSync(HISTORY_FILE)) {
   console.error('No recorded runs in history.json yet. Run `npm run bench:record` first.');
@@ -15,7 +36,6 @@ if (!existsSync(HISTORY_FILE)) {
 }
 
 const history = JSON.parse(readFileSync(HISTORY_FILE, 'utf8'));
-const [cmd, a, b] = process.argv.slice(2);
 
 function findRun(sha) {
   const r = history.runs.find((x) => x.sha === sha || x.sha.startsWith(sha));

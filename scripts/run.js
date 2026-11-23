@@ -8,12 +8,14 @@ import { chromium } from 'playwright';
 
 import { evaluateAudit } from '../src/audit.js';
 import { discoverContestants, parseOverrides } from '../src/discover.js';
+import { renderBenchmarkHtml } from '../src/render-html.js';
 import { BENCHMARKS } from '../src/spec.js';
 import { measureAllSizes } from './size.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HISTORY_FILE = join(root, 'history.json');
 const RUNS_DIR = join(root, 'runs');
+const RESULTS_DIR = join(root, 'results');
 const SCHEMA_VERSION = 1;
 
 const { values: flags } = parseArgs({
@@ -253,8 +255,10 @@ window.__measureCold = async (id, nonce) => {
     }
 
     const libContestants = contestants.filter((c) => !c.isFloor);
+    const fastestAll = {};
     const fastestLib = {};
     for (const b of activeBenches) {
+      fastestAll[b.id] = Math.min(...contestants.map((c) => medians[b.id][c.id]));
       fastestLib[b.id] = Math.min(...libContestants.map((c) => medians[b.id][c.id]));
     }
 
@@ -273,9 +277,19 @@ window.__measureCold = async (id, nonce) => {
 
     const coreBenches = activeBenches.filter((b) => b.tier === 'core');
     const appBenches = activeBenches.filter((b) => b.tier === 'workload');
-    console.log('\n=== HEADLINE GEOMETRIC MEAN SLOWDOWN (50% Core / 50% App Workloads) ===');
+    console.log('\n=== HEADLINE GEOMETRIC MEAN SLOWDOWN (1.00x = Row Fastest, Krausest Convention) ===');
     const scores = {};
     for (const c of contestants) {
+      const coreKrausest = coreBenches.length
+        ? geomean(coreBenches.map((b) => medians[b.id][c.id] / fastestAll[b.id]))
+        : 1;
+      const appKrausest = appBenches.length
+        ? geomean(appBenches.map((b) => medians[b.id][c.id] / fastestAll[b.id]))
+        : 1;
+      const weightedKrausest = coreBenches.length && appBenches.length
+        ? Math.sqrt(coreKrausest * appKrausest)
+        : geomean(activeBenches.map((b) => medians[b.id][c.id] / fastestAll[b.id]));
+
       const coreVsLib = coreBenches.length
         ? geomean(coreBenches.map((b) => medians[b.id][c.id] / fastestLib[b.id]))
         : 1;
@@ -297,6 +311,9 @@ window.__measureCold = async (id, nonce) => {
         : geomean(activeBenches.map((b) => medians[b.id][c.id] / medians[b.id]['vanilla-temporal']));
 
       scores[c.id] = {
+        core_krausest: Number(coreKrausest.toFixed(2)),
+        app_krausest: Number(appKrausest.toFixed(2)),
+        weighted_krausest: Number(weightedKrausest.toFixed(2)),
         core_vs_fastest: Number(coreVsLib.toFixed(2)),
         app_vs_fastest: Number(appVsLib.toFixed(2)),
         weighted_vs_fastest: Number(weightedVsLib.toFixed(2)),
@@ -305,18 +322,49 @@ window.__measureCold = async (id, nonce) => {
 
       const badge = audits[c.id].passed ? '100% pass' : 'audit warn';
       console.log(
-        `${c.label.padEnd(28)} | Core: ${coreVsLib.toFixed(2)}x | App: ${appVsLib.toFixed(2)}x | 50/50 Weighted: ${weightedVsLib.toFixed(2)}x | vs Floor: ${weightedVsFloor.toFixed(2)}x | Brotli: ${(sizes[c.id].full.brotli / 1024).toFixed(2)} kB | ${badge}`,
+        `${c.label.padEnd(28)} | Core: ${coreKrausest.toFixed(2)}x | App: ${appKrausest.toFixed(2)}x | 50/50 Weighted: ${weightedKrausest.toFixed(2)}x | vs Floor: ${weightedVsFloor.toFixed(2)}x | Brotli: ${(sizes[c.id].full.brotli / 1024).toFixed(2)} kB | ${badge}`,
       );
     }
 
+    const focusId = flags.focus;
+    const focusContestant = contestants.find((c) => c.id === focusId);
+    const focusGitDir = (focusContestant?.pkg && overrides.get(focusContestant.pkg)?.dir) ?? root;
+    const sha = flags.sha ?? gitIn(focusGitDir, 'rev-parse', '--short', 'HEAD');
+    const msg = flags.msg ?? gitIn(focusGitDir, 'log', '-1', '--format=%s');
+    const wallclockSeconds = Math.round((Date.now() - startWall) / 1000);
+    const versions = readPackageVersions();
+    const runTimestamp = new Date().toISOString();
+
+    const fullRunData = {
+      sha,
+      focus: focusId,
+      msg,
+      timestamp: runTimestamp,
+      rounds,
+      wallclock_seconds: wallclockSeconds,
+      chrome_version: chromeVersion,
+      field: versions,
+      sizes,
+      polyfill,
+      audits,
+      scores,
+      medians,
+      intervals,
+    };
+
+    if (!existsSync(RESULTS_DIR)) mkdirSync(RESULTS_DIR, { recursive: true });
+    const htmlPath = join(RESULTS_DIR, 'index.html');
+    writeFileSync(join(RESULTS_DIR, 'latest.json'), `${JSON.stringify(fullRunData, null, 2)}\n`);
+    writeFileSync(
+      htmlPath,
+      renderBenchmarkHtml(
+        fullRunData,
+        contestants.map((c) => ({ id: c.id, label: c.label, url: c.url, isFloor: c.isFloor })),
+      ),
+    );
+    console.log(`\nVisual HTML report: file://${htmlPath}`);
+
     if (flags.record) {
-      const focusId = flags.focus;
-      const focusContestant = contestants.find((c) => c.id === focusId);
-      const focusGitDir = (focusContestant?.pkg && overrides.get(focusContestant.pkg)?.dir) ?? root;
-      const sha = flags.sha ?? gitIn(focusGitDir, 'rev-parse', '--short', 'HEAD');
-      const msg = flags.msg ?? gitIn(focusGitDir, 'log', '-1', '--format=%s');
-      const wallclockSeconds = Math.round((Date.now() - startWall) / 1000);
-      const versions = readPackageVersions();
       const peers = libContestants.filter((c) => c.id !== focusId).map((c) => c.id);
 
       const comparison = {};
@@ -341,7 +389,7 @@ window.__measureCold = async (id, nonce) => {
         sha,
         focus: focusId,
         msg,
-        timestamp: new Date().toISOString(),
+        timestamp: runTimestamp,
         rounds,
         wallclock_seconds: wallclockSeconds,
         chrome_version: chromeVersion,
@@ -359,30 +407,8 @@ window.__measureCold = async (id, nonce) => {
       writeFileSync(HISTORY_FILE, `${JSON.stringify(history, null, 2)}\n`);
 
       if (!existsSync(RUNS_DIR)) mkdirSync(RUNS_DIR, { recursive: true });
-      writeFileSync(
-        join(RUNS_DIR, `${sha}.json`),
-        `${JSON.stringify(
-          {
-            sha,
-            focus: focusId,
-            msg,
-            timestamp: entry.timestamp,
-            rounds,
-            wallclock_seconds: wallclockSeconds,
-            chrome_version: chromeVersion,
-            field: versions,
-            sizes,
-            polyfill,
-            audits,
-            scores,
-            medians,
-            intervals,
-          },
-          null,
-          2,
-        )}\n`,
-      );
-      console.log(`\nRecorded run ${sha} (${focusId}) to history.json and runs/${sha}.json`);
+      writeFileSync(join(RUNS_DIR, `${sha}.json`), `${JSON.stringify(fullRunData, null, 2)}\n`);
+      console.log(`Recorded run ${sha} (${focusId}) to history.json and runs/${sha}.json`);
     }
   }
   finally {

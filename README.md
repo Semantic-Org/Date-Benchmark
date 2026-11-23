@@ -19,12 +19,13 @@ Each contestant lives in an isolated workspace under [`contestants/<id>/`](conte
 ```sh
 npm test                                               # verify all contestants' contracts, checksums, and DST audits
 npm run size                                           # measure minimal + full contestant Brotli-11 & Gzip sizes
-npm run bench:quick                                    # 5 interleaved rounds in Headless Chrome
-npm run bench                                          # 15 interleaved rounds in Headless Chrome
+npm run bench:quick                                    # 5 interleaved rounds -> writes results/index.html
+npm run bench                                          # 15 interleaved rounds -> writes results/index.html
 npm run bench -- --contestants luxon,date-fns          # subset of contestants (always includes Temporal floor)
 npm run bench -- --override native-dates=../native-dates # test a local checkout of any package
-npm run bench:record                                   # record run into history.json and runs/<sha>.json
+npm run bench:record                                   # record run into history.json, runs/<sha>.json, and results/index.html
 npm run report                                         # inspect latest recorded ratios
+npm run report -- html                                 # regenerate results/index.html from latest run
 npm run report -- markdown                             # render Markdown leaderboard from latest recorded run
 npm run report -- diff A B                             # compare two recorded SHAs
 ```
