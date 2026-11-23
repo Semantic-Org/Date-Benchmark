@@ -2,7 +2,7 @@
 
 A headless Chrome benchmark for JavaScript date-time libraries, modeled on [krausest/js-framework-benchmark](https://github.com/krausest/js-framework-benchmark).
 
-Every library runs as a production bundle against shared non-repeating fixtures and a raw `Temporal` + `Intl` platform floor. Open [`results/index.html`](results/index.html) to inspect the latest interactive report, toggle baselines, or compare subsets of libraries.
+Every library runs as a production bundle against shared non-repeating fixtures and a raw `Temporal` + `Intl` platform floor. View the latest interactive report at [bench.nativedates.dev](https://bench.nativedates.dev) to toggle baselines or compare subsets of libraries.
 
 ## Benchmarks
 
@@ -46,7 +46,7 @@ npm test
 npm run bench
 ```
 
-The test command verifies contracts, checksums, and the DST audit in Chrome. The benchmark runs 15 interleaved rounds and writes [results/index.html](results/index.html).
+The test command verifies contracts, checksums, and the DST audit in Chrome. The benchmark runs 15 interleaved rounds and writes `results/index.html`.
 
 Pass `--contestants` to run a subset, or `--override <pkg>=<dir>` to benchmark an unreleased local checkout.
 
