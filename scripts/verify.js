@@ -29,6 +29,25 @@ for (const c of contestants) {
   if (!c.isFloor && (!c.pkg || !c.url)) {
     errors.push(`${c.id}: package.json dateBenchmark block must specify "label", "package", and "url"`);
   }
+  if (!c.isFloor && existsSync(c.entry)) {
+    const fullSrc = readFileSync(c.entry, 'utf8');
+    const timedSrc = fullSrc.slice(Math.max(0, fullSrc.indexOf('export function firstPaint')));
+    // forbid unwrapping into raw Temporal or constructing custom userland Intl formatters
+    for (const banned of [/\bTemporal\./, /\.toTemporal\s*\(/, /\.toJSDate\s*\(/, /new\s+Intl\.(DateTimeFormat|RelativeTimeFormat)\b/]) {
+      if (banned.test(timedSrc)) {
+        errors.push(`${c.id}: index.js uses forbidden platform escape hatch (${banned})`);
+      }
+    }
+    // strip .sort((a, b) => ...) comparators and the 07_diff_and_sort checksum line before checking raw ms unwrapping
+    const stripped = timedSrc
+      .replace(/\.sort\s*\(\s*\([^)]*\)\s*=>\s*[^;\n]+\)/g, '')
+      .replace(/copy\[0\][^\n]*%\s*1000/g, '');
+    for (const rawMs of [/\.getTime\s*\(/, /\.valueOf\s*\(/, /\.toMillis\s*\(/, /\.epochMilliseconds\b/]) {
+      if (rawMs.test(stripped)) {
+        errors.push(`${c.id}: index.js unwraps raw epoch ms outside .sort() (${rawMs})`);
+      }
+    }
+  }
 }
 
 const { bundles, minimalBundles } = await measureAllSizes({ contestants, overrides });

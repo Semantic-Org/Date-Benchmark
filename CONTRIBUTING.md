@@ -43,14 +43,20 @@ npm run bench:quick -- --contestants my-lib # runs 5 interleaved rounds against 
 
 ## 2. Fair-Play Rules
 
-To keep comparisons honest across libraries:
+Just as `js-framework-benchmark` forbids bypassing a framework with manual `document.createElement` calls, `date-benchmark` requires every contestant to **stay inside its library's abstraction boundary**:
 
-1. **Public, documented APIs only.** Write callsites the way your documentation recommends to application developers. Do not reach into private package internals or hand-roll custom string parsers/formatters around your library.
-2. **Equal semantic work.**
-   - `createContestant(fx)` may pre-parse the shared `preInstants`, `preDates`, `preRelInstants`, and `shuffled` arrays (matching all other contestants), and must **not** precompute benchmark answers outside the timed methods.
-   - `04_format_intl_cold` must format across all 20 `fx.COLD_PAIRS` without pre-warming those 20 locale/zone pairs at module scope.
-   - Never mutate arrays or objects on `fx` in place (`npm test` checks fixture immutability).
-3. **Correctness badges are transparent, not disqualifying.** `npm test` enforces structural work parity (`01_parse_iso` checksum, `10_app_month_grid` hits, `11_app_booking_slots` count) so every contestant performs the full workload, while `src/audit.js` records semantic/DST edge cases (`2026-02-31` rollover, cross-zone spring-forward DST when browser `TZ=Europe/Berlin`, leap-year clamping) directly on the results table.
+1. **No raw platform escape hatches inside timed workloads.**
+   - Do **not** unwrap instances via `.valueOf()`, `.getTime()`, `.toMillis()`, `.epochMilliseconds`, `.toDate()`, or `.toTemporal()` to perform comparisons (`<`, `>`), arithmetic (`+ 86400000`), or manual `Intl.DateTimeFormat` / `Intl.RelativeTimeFormat` caching outside the library.
+   - **Documented exceptions (enforced by `npm test`):**
+     - **Sorting (`Array.prototype.sort`):** Libraries with a comparator helper (`native-dates` `compare`, `date-fns` `compareAsc`/`compareDesc`) use it; libraries without a comparator (`dayjs`, `luxon`, `moment`, `tempo`) may use `(a, b) => a.valueOf() - b.valueOf()` / `a.toMillis() - b.toMillis()` inside `.sort(...)` only.
+     - **Missing `Intl` wrapper (`03_format_intl_warm`, `04_format_intl_cold`):** Libraries with no `Intl` formatting API (`dayjs`, `moment`) may call `.toDate().toLocaleString(locale, options)` directly (without adding a hand-rolled userland `Map` cache around `Intl.DateTimeFormat`).
+2. **Use the library's idiomatic domain API.**
+   - Libraries that ship an interval/range type (`native-dates` `Range`, `luxon` `Interval`, `date-fns` interval helpers) use it for interval overlap/splitting (`11_app_booking_slots`); libraries without a range type (`dayjs`, `moment`, `tempo`) use their point comparison methods (`isBefore` / `isAfter`), never raw number comparisons.
+3. **Equal work & fixture immutability.**
+   - `createContestant(fx)` may pre-parse only the shared `preInstants`, `preDates`, `preRelInstants`, and `shuffled` input arrays, and must **not** precompute benchmark results outside timed methods.
+   - `04_format_intl_cold` must format across all 20 `fx.COLD_PAIRS` without pre-warming those pairs at module scope.
+   - Never mutate arrays or objects on `fx` in place (`npm test` verifies fixture immutability).
+4. **Correctness badges are transparent, not disqualifying.** `npm test` enforces structural work parity (`01_parse_iso` checksum, `10_app_month_grid` hits, `11_app_booking_slots` count) so every contestant performs the full workload, while `src/audit.js` records semantic/DST edge cases (`2026-02-31` rollover, cross-zone spring-forward DST when browser `TZ=Europe/Berlin`, leap-year clamping) directly on the results table.
 
 ## 3. Benchmarking Unreleased Local Changes
 

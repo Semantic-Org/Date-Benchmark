@@ -198,7 +198,7 @@ export function createContestant(fx) {
         const dayStr = fx.bookingWorkdays[d];
         let slot = parseISO(`${dayStr}T09:00:00`, { in: ny });
         const dayEnd = parseISO(`${dayStr}T17:00:00`, { in: ny });
-        while (slot.getTime() < dayEnd.getTime()) {
+        while (isBefore(slot, dayEnd)) {
           const next = addMinutes(slot, 30);
           const candidate = { start: slot, end: next };
           let blocked = false;
