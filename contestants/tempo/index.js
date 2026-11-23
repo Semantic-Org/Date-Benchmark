@@ -197,19 +197,17 @@ export function createContestant(fx) {
     },
 
     '11_app_booking_slots'() {
-      const busy = fx.busyIntervals.map((b) => [tempoDate(b.start).getTime(), tempoDate(b.end).getTime()]);
+      const busy = fx.busyIntervals.map((b) => ({ start: tempoDate(b.start), end: tempoDate(b.end) }));
       let openCount = 0;
       for (let d = 0; d < fx.bookingWorkdays.length; d++) {
         const dayStr = fx.bookingWorkdays[d];
         let slot = tzDate(`${dayStr}T09:00:00`, 'America/New_York');
         const dayEnd = tzDate(`${dayStr}T17:00:00`, 'America/New_York');
-        while (slot.getTime() < dayEnd.getTime()) {
+        while (isBefore(slot, dayEnd)) {
           const next = addMinute(slot, 30);
-          const sMs = slot.getTime();
-          const eMs = next.getTime();
           let blocked = false;
           for (let b = 0; b < busy.length; b++) {
-            if (sMs < busy[b][1] && busy[b][0] < eMs) {
+            if (isBefore(slot, busy[b].end) && isBefore(busy[b].start, next)) {
               blocked = true;
               break;
             }
