@@ -1,31 +1,55 @@
-# `date-benchmark`
+# Date Benchmark
 
-Vendor-neutral browser benchmark, shipped-bytes measurement, and cross-zone DST correctness audit for JavaScript date-time libraries — structured after [`krausest/js-framework-benchmark`](https://github.com/krausest/js-framework-benchmark).
+A headless Chrome benchmark for JavaScript date-time libraries, modeled on [krausest/js-framework-benchmark](https://github.com/krausest/js-framework-benchmark).
 
-Each contestant lives in an isolated workspace under [`contestants/<id>/`](contestants/) (`package.json`, `index.js`, `minimal.js`) and is auto-discovered with zero central-file edits. Library authors can add a library or refine an existing contestant by opening a pull request touching only `contestants/<id>/` (see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+Every library runs as a production bundle against shared non-repeating fixtures and a raw `Temporal` + `Intl` platform floor. Open [`results/index.html`](results/index.html) to inspect the latest interactive report, toggle baselines, or compare subsets of libraries.
 
-## Design Principles
+## Benchmarks
 
-1. **Platform Floor Included (`Temporal + Intl`):** Raw `Temporal` + cached `Intl` runs alongside every library as the `1.00x` platform floor (analogous to `vanillajs` in `js-framework-benchmark`), separating browser engine cost from library overhead.
-2. **Mandatory Correctness & Cross-Zone DST Audit (`src/audit.js`):** Headless Chrome runs in `TZ=Europe/Berlin` while zoned workloads target `America/New_York`, catching libraries that silently fall back to host `Date` local time or roll over invalid ISO dates like `2026-02-31`.
-3. **Non-Repeating Wire Fixtures (`src/fixtures.js`):** Operations run over thousands of distinct timestamps across 50 years so single-slot string caches cannot game results.
-4. **Two-Tier 50/50 Weighted Geometric Mean (`src/spec.js`):**
-   - **Tier 1 — Core Operations (50%):** `01_parse_iso`, `02_format_token`, `03_format_intl_warm`, `04_format_intl_cold`, `05_calendar_math`, `06_zoned_dst_math`, `07_diff_and_sort`, `08_relative_time`.
-   - **Tier 2 — Real Application Workloads (50%):** `09_app_orders_table` (500 API rows), `10_app_month_grid` (12 × 42 cells), `11_app_booking_slots` (DST workweeks vs 80 busy ranges), `12_app_cold_startup` (fresh browser page dynamic `import()` + first paint).
-5. **Shipped Production Bytes (`scripts/size.js`):** Measures `esbuild` minified, Gzip-9, and Brotli-11 sizes for both `minimal.js` (3-op tree-shaken floor) and `index.js` (full 12-benchmark app bundle including required timezone/locale plugins), plus the `temporal-polyfill` reference for legacy browsers.
+The headline score is a 50/50 weighted geometric mean across eight core operations and four application workloads, normalized to the fastest result in each row.
 
-## Commands
+**Core operations (50%)** cover ISO parsing, UTC token formatting, and warm or cold `Intl` localization. They also time calendar and cross-zone DST math, chronological sorting, diffs, and localized relative time.
+
+**Application workloads (50%)** time a 500-row orders table, twelve 42-cell calendar grids, and DST-spanning booking slots against 80 busy intervals. They also measure cold `import()` through first paint in a fresh browser page.
+
+Two supporting metrics appear alongside runtime on every report:
+
+- **Shipped bytes:** `esbuild` production bundles compressed with Brotli-11 and Gzip for both a minimal 3-operation import and the full 12-workload bundle (including required timezone and locale plugins). The `temporal-polyfill` size is reported separately for browsers without native `Temporal`.
+- **Correctness and DST audit:** Headless Chrome runs with its host zone pinned to `Europe/Berlin` while zoned workloads target `America/New_York`. Libraries that silently roll over invalid dates like `2026-02-31`, drift across spring-forward DST, or leak host `Date` local time are annotated directly on the results table rather than hidden.
+
+## Methodology
+
+- **Interleaved browser runs:** Contestants run in rotated order across 15 rounds with warm-up passes (skipped for cold `Intl` formatting) and forced GC between runs. Reports publish medians alongside 95% confidence intervals.
+- **Non-repeating fixtures:** Inputs span thousands of distinct timestamps across 50 years so single-entry caches cannot skew results. Cold formatting cycles across 20 uncached locale-zone pairs.
+- **Platform floor:** Raw `Temporal` + cached `Intl` runs as a contestant alongside every library, separating browser engine cost from library overhead. The HTML report lets you switch normalization between row fastest, the `Temporal` floor, and the fastest library.
+- **Fair-play enforcement:** `npm test` checks output parity, fixture immutability, and abstraction boundaries so contestants stay inside their public APIs instead of escaping to raw `Temporal` or custom `Intl` caches.
+
+## Contestants
+
+Each library lives in an isolated workspace under [`contestants/`](contestants/) and is discovered automatically:
+
+- `Temporal` + `Intl` (platform floor)
+- `date-fns` + `@date-fns/tz`
+- `dayjs` + plugins
+- `luxon`
+- `moment` + `moment-timezone`
+- `native-dates`
+- `@formkit/tempo`
+
+## Running locally
+
+Requires Node.js and Playwright's Chromium binary (`npx playwright install chromium` on first setup).
 
 ```sh
-npm test                                               # verify all contestants' contracts, checksums, and DST audits
-npm run size                                           # measure minimal + full contestant Brotli-11 & Gzip sizes
-npm run bench:quick                                    # 5 interleaved rounds -> writes results/index.html
-npm run bench                                          # 15 interleaved rounds -> writes results/index.html
-npm run bench -- --contestants luxon,date-fns          # subset of contestants (always includes Temporal floor)
-npm run bench -- --override native-dates=../native-dates # test a local checkout of any package
-npm run bench:record                                   # record run into history.json, runs/<sha>.json, and results/index.html
-npm run report                                         # inspect latest recorded ratios
-npm run report -- html                                 # regenerate results/index.html from latest run
-npm run report -- markdown                             # render Markdown leaderboard from latest recorded run
-npm run report -- diff A B                             # compare two recorded SHAs
+npm install
+npm test
+npm run bench
 ```
+
+The test command verifies contracts, checksums, and the DST audit in Chrome. The benchmark runs 15 interleaved rounds and writes [results/index.html](results/index.html).
+
+Pass `--contestants` to run a subset, or `--override <pkg>=<dir>` to benchmark an unreleased local checkout.
+
+## Contributing
+
+Library authors and contributors can add a contestant or improve an existing one in a pull request touching only `contestants/<id>/`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workspace contract and fair-play rules.
