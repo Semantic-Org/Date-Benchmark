@@ -33,7 +33,7 @@ jobs:
           mkdir -p _site
           cp results/index.html _site/index.html
           if [ -f results/CNAME ]; then cp results/CNAME _site/CNAME; fi
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
       - name: Deploy to GitHub Pages
