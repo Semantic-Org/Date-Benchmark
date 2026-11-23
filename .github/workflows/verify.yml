@@ -12,12 +12,22 @@ jobs:
   verify:
     name: Contract, Size & Audit
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: date-benchmark
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: date-benchmark
+      - uses: actions/checkout@v4
+        with:
+          repository: Semantic-Org/Native-Dates
+          path: native-dates
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: date-benchmark/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm test

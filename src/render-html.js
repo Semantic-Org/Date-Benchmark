@@ -143,11 +143,11 @@ export function renderBenchmarkHtml(data, contestantsMeta) {
     color: var(--muted);
   }
   .legend-bar {
-    width: 120px;
-    height: 10px;
+    width: 132px;
+    height: 11px;
     border-radius: 3px;
-    background: linear-gradient(90deg, hsl(138, 62%, 78%), hsl(60, 82%, 80%), hsl(8, 82%, 80%));
-    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: linear-gradient(90deg, rgb(99, 191, 124) 0%, rgb(255, 235, 132) 50%, rgb(248, 105, 107) 100%);
+    border: 1px solid rgba(15, 23, 42, 0.16);
   }
   .table-card {
     background: var(--surface);
@@ -330,15 +330,27 @@ const { benchmarks, contestants, run } = DATA;
 let mode = 'all'; // 'all' | 'floor' | 'peer'
 const enabled = new Set(contestants.map((c) => c.id));
 
-// Continuous Krausest-style green -> yellow -> coral HSL heatmap
+// Exact krausest/js-framework-benchmark 3-stop piecewise RGB heatmap (#63bf7c -> #ffeb84 -> #f8696b)
+// paired with a subtle vertical gradient sheen for crisp row separation
+function lerpRgb(c1, c2, t) {
+  const r = Math.round(c1[0] + (c2[0] - c1[0]) * t);
+  const g = Math.round(c1[1] + (c2[1] - c1[1]) * t);
+  const b = Math.round(c1[2] + (c2[2] - c1[2]) * t);
+  return \`linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(0,0,0,0.03) 100%), rgb(\${r}, \${g}, \${b})\`;
+}
+
+const KRAUSEST_GREEN = [99, 191, 124];
+const KRAUSEST_YELLOW = [255, 235, 132];
+const KRAUSEST_RED = [248, 105, 107];
+
 function heatColor(factor) {
-  if (!Number.isFinite(factor) || factor <= 1.0001) return 'hsl(138, 62%, 80%)';
-  // map log2(factor) from 0 (1x) .. 2.2 (~4.6x) onto hue 138 -> 6
-  const t = Math.min(1, Math.log2(factor) / 2.2);
-  const hue = Math.round(138 - t * 132);
-  const sat = Math.round(62 + t * 20);
-  const light = Math.round(80 + Math.sin(t * Math.PI) * 5);
-  return \`hsl(\${hue}, \${sat}%, \${light}%)\`;
+  if (!Number.isFinite(factor) || factor <= 1.0) {
+    return lerpRgb(KRAUSEST_GREEN, KRAUSEST_YELLOW, 0);
+  }
+  if (factor < 2.0) {
+    return lerpRgb(KRAUSEST_GREEN, KRAUSEST_YELLOW, factor - 1.0);
+  }
+  return lerpRgb(KRAUSEST_YELLOW, KRAUSEST_RED, Math.min(1.0, (factor - 2.0) / 2.0));
 }
 
 function geomean(vals) {
@@ -472,7 +484,7 @@ function render() {
     html += '<tr><td class="bench-name">Rejects Invalid Calendar Rollover<span class="bench-desc">Refuses "2026-02-31" instead of silently rolling to March 3</span></td>';
     for (const c of cols) {
       const ok = run.audits[c.id].rejectsInvalidCalendar;
-      html += \`<td class="metric-cell" style="background:\${ok ? 'hsl(138, 62%, 84%)' : 'hsl(28, 88%, 84%)'}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${ok ? 'PASS' : 'ROLLOVER'}</span></td>\`;
+      html += \`<td class="metric-cell" style="background:\${ok ? heatColor(1) : heatColor(3)}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${ok ? 'PASS' : 'ROLLOVER'}</span></td>\`;
     }
     html += '</tr>';
 
@@ -480,7 +492,7 @@ function render() {
     for (const c of cols) {
       const pct = run.audits[c.id].dstAccuracyPct;
       const ok = pct === 100;
-      html += \`<td class="metric-cell" style="background:\${ok ? 'hsl(138, 62%, 84%)' : pct > 0 ? 'hsl(38, 88%, 84%)' : 'hsl(8, 82%, 82%)'}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${pct.toFixed(1)}%</span></td>\`;
+      html += \`<td class="metric-cell" style="background:\${ok ? heatColor(1) : pct > 0 ? heatColor(2.4) : heatColor(4)}"><span class="\${ok ? 'audit-pass' : 'audit-fail'}">\${pct.toFixed(1)}%</span></td>\`;
     }
     html += '</tr>';
   }
