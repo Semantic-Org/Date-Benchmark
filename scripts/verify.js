@@ -29,6 +29,13 @@ for (const c of contestants) {
   if (!c.isFloor && (!c.pkg || !c.url)) {
     errors.push(`${c.id}: package.json dateBenchmark block must specify "label", "package", and "url"`);
   }
+  if (c.isFloor && existsSync(c.entry)) {
+    const fullSrc = readFileSync(c.entry, 'utf8');
+    const bookingSlice = fullSrc.slice(Math.max(0, fullSrc.indexOf("'11_app_booking_slots'")));
+    if (/\.epochMilliseconds\b/.test(bookingSlice)) {
+      errors.push(`${c.id}: 11_app_booking_slots must use Temporal comparison methods rather than raw epochMilliseconds`);
+    }
+  }
   if (!c.isFloor && existsSync(c.entry)) {
     const fullSrc = readFileSync(c.entry, 'utf8');
     const timedSrc = fullSrc.slice(Math.max(0, fullSrc.indexOf('export function firstPaint')));

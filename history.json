@@ -88,6 +88,94 @@
           "fastest": "date-fns"
         }
       }
+    },
+    {
+      "sha": "0b758f2",
+      "focus": "native-dates",
+      "msg": "Perf: Fast-Path Range Stepping and Slot Splitting (#88)",
+      "timestamp": "2026-11-24T00:36:29.699Z",
+      "rounds": 15,
+      "wallclock_seconds": 134,
+      "chrome_version": "159.0.8154.6",
+      "field": {
+        "date-fns": "4.4.0",
+        "dayjs": "1.11.23",
+        "luxon": "3.7.2",
+        "moment": "2.31.0",
+        "native-dates": "1.0.0 (local)",
+        "tempo": "1.5.0"
+      },
+      "scores": {
+        "core_krausest": 1.66,
+        "app_krausest": 1.36,
+        "weighted_krausest": 1.5,
+        "core_vs_fastest": 1.29,
+        "app_vs_fastest": 1,
+        "weighted_vs_fastest": 1.13,
+        "weighted_vs_floor": 1.21
+      },
+      "comparison": {
+        "01_parse_iso": {
+          "ratio": 2.4,
+          "ratio_to_floor": 1.85,
+          "fastest": "tempo"
+        },
+        "02_format_token": {
+          "ratio": 1.06,
+          "ratio_to_floor": 1.16,
+          "fastest": "moment"
+        },
+        "03_format_intl_warm": {
+          "ratio": 0.46,
+          "ratio_to_floor": 2.97,
+          "fastest": "luxon"
+        },
+        "04_format_intl_cold": {
+          "ratio": 0.26,
+          "ratio_to_floor": 0.67,
+          "fastest": "luxon"
+        },
+        "05_calendar_math": {
+          "ratio": 2.37,
+          "ratio_to_floor": 1.97,
+          "fastest": "date-fns"
+        },
+        "06_zoned_dst_math": {
+          "ratio": 0.5,
+          "ratio_to_floor": 2.37,
+          "fastest": "moment"
+        },
+        "07_diff_and_sort": {
+          "ratio": 1.25,
+          "ratio_to_floor": 0.91,
+          "fastest": "tempo"
+        },
+        "08_relative_time": {
+          "ratio": 0.25,
+          "ratio_to_floor": 0.82,
+          "fastest": "date-fns"
+        },
+        "09_app_orders_table": {
+          "ratio": 0.14,
+          "ratio_to_floor": 1.55,
+          "fastest": "moment"
+        },
+        "10_app_month_grid": {
+          "ratio": 0.93,
+          "ratio_to_floor": 1.56,
+          "fastest": "date-fns"
+        },
+        "11_app_booking_slots": {
+          "ratio": 0.61,
+          "ratio_to_floor": 0.34,
+          "fastest": "moment"
+        },
+        "12_app_cold_startup": {
+          "ratio": 0.88,
+          "ratio_to_floor": 1.42,
+          "fastest": "date-fns"
+        }
+      }
     }
   ]
 }

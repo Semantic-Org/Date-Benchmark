@@ -197,10 +197,10 @@ export function createContestant(fx) {
     },
 
     '11_app_booking_slots'() {
-      const busy = fx.busyIntervals.map((b) => [
-        Temporal.Instant.from(b.start).epochMilliseconds,
-        Temporal.Instant.from(b.end).epochMilliseconds,
-      ]);
+      const busy = fx.busyIntervals.map((b) => ({
+        start: Temporal.Instant.from(b.start).toZonedDateTimeISO('UTC'),
+        end: Temporal.Instant.from(b.end).toZonedDateTimeISO('UTC'),
+      }));
       let openCount = 0;
       for (let d = 0; d < fx.bookingWorkdays.length; d++) {
         const day = Temporal.PlainDate.from(fx.bookingWorkdays[d]);
@@ -208,11 +208,12 @@ export function createContestant(fx) {
         const dayEnd = day.toZonedDateTime({ timeZone: 'America/New_York', plainTime: '17:00' });
         while (Temporal.ZonedDateTime.compare(slot, dayEnd) < 0) {
           const next = slot.add({ minutes: 30 });
-          const sMs = slot.epochMilliseconds;
-          const eMs = next.epochMilliseconds;
           let blocked = false;
           for (let b = 0; b < busy.length; b++) {
-            if (sMs < busy[b][1] && busy[b][0] < eMs) {
+            if (
+              Temporal.ZonedDateTime.compare(slot, busy[b].end) < 0
+              && Temporal.ZonedDateTime.compare(busy[b].start, next) < 0
+            ) {
               blocked = true;
               break;
             }
